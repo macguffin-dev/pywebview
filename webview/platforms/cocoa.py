@@ -416,6 +416,19 @@ class BrowserView:
 
     class WebKitHost(WebKit.WKWebView):
         def performDragOperation_(self, sender):
+            # TIndex hook: handle our pasteboard types before the URL
+            # drop path. ``on_perform_drag`` returns True when the
+            # drop was consumed; otherwise we fall through to the
+            # original logic so file URL drops keep working.
+            try:
+                from tindex import dnd as _tdnd
+
+                cb = getattr(_tdnd, 'on_perform_drag', None)
+                if cb is not None and cb(self, sender):
+                    return True
+            except ImportError:
+                pass
+
             if sender.draggingSource() is None and _dnd_state['num_listeners'] > 0:
                 pboard = sender.draggingPasteboard()
                 classes = [AppKit.NSURL]
@@ -471,6 +484,19 @@ class BrowserView:
             super(BrowserView.WebKitHost, self).mouseDown_(event)
 
         def mouseDragged_(self, event):
+            # TIndex hook: if a drag payload is armed, start a native
+            # NSDraggingSession instead of letting WebKit's default
+            # text-selection drag take over. The hook returns True
+            # when it claimed the event.
+            try:
+                from tindex import dnd as _tdnd
+
+                cb = getattr(_tdnd, 'on_mouse_dragged', None)
+                if cb is not None and cb(self, event):
+                    return
+            except ImportError:
+                pass
+
             i = BrowserView.get_instance('webview', self)
             window = self.window()
 
@@ -542,6 +568,64 @@ class BrowserView:
                         return
 
             super(BrowserView.WebKitHost, self).keyDown_(event)
+
+        # ----- TIndex native drag-and-drop hooks ------------------
+        # Defined inline (vs runtime attribute assignment) because
+        # PyObjC only registers Obj-C selectors for methods present
+        # at class-definition time. Runtime ``cls.draggingEntered_ =
+        # func`` assignment doesn't make AppKit dispatch to them.
+        # The bodies delegate to ``tindex.dnd._tindex_*`` callbacks
+        # so the heavy lifting stays in TIndex's tree; pywebview
+        # only forwards. When ``tindex.dnd`` isn't importable
+        # (running pywebview standalone), the hooks fall through to
+        # the WKWebView default. See ``python/tindex/dnd.py`` for
+        # the full architecture.
+
+        def _tindex_dnd_callback(self, name):
+            try:
+                from tindex import dnd as _tdnd
+            except ImportError:
+                return None
+            return getattr(_tdnd, name, None)
+
+        def draggingEntered_(self, sender):
+            cb = self._tindex_dnd_callback('on_dragging_entered')
+            if cb is not None:
+                op = cb(self, sender)
+                if op is not None:
+                    return op
+            try:
+                return super(BrowserView.WebKitHost, self).draggingEntered_(sender)
+            except Exception:
+                return AppKit.NSDragOperationNone
+
+        def draggingUpdated_(self, sender):
+            cb = self._tindex_dnd_callback('on_dragging_updated')
+            if cb is not None:
+                op = cb(self, sender)
+                if op is not None:
+                    return op
+            try:
+                return super(BrowserView.WebKitHost, self).draggingUpdated_(sender)
+            except Exception:
+                return AppKit.NSDragOperationNone
+
+        def draggingExited_(self, sender):
+            cb = self._tindex_dnd_callback('on_dragging_exited')
+            if cb is not None:
+                cb(self, sender)
+            try:
+                super(BrowserView.WebKitHost, self).draggingExited_(sender)
+            except Exception:
+                pass
+
+        def draggingSession_sourceOperationMaskForDraggingContext_(self, session, ctx):
+            cb = self._tindex_dnd_callback('on_drag_source_op_mask')
+            if cb is not None:
+                op = cb(self, session, ctx)
+                if op is not None:
+                    return op
+            return AppKit.NSDragOperationCopy
 
     def __init__(self, window):
         BrowserView.instances[window.uid] = self
