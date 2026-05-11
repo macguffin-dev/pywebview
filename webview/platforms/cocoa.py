@@ -620,12 +620,25 @@ class BrowserView:
                 pass
 
         def draggingSession_sourceOperationMaskForDraggingContext_(self, session, ctx):
+            # Delegate to TIndex first; if it claims this drag (cindex
+            # pasteboard armed) the returned op overrides WKWebView's
+            # default. Otherwise fall through to ``super`` so HTML5
+            # drags (e.g., pane-title-bar reorder with
+            # ``effectAllowed='move'``) get WKWebView's correct mapping.
+            # Hardcoding Copy here forces source-mask=Copy, which doesn't
+            # intersect with a Move-only destination mask — AppKit then
+            # refuses the drop and the JS ``drop`` event never fires.
             cb = self._tindex_dnd_callback('on_drag_source_op_mask')
             if cb is not None:
                 op = cb(self, session, ctx)
                 if op is not None:
                     return op
-            return AppKit.NSDragOperationCopy
+            try:
+                return super(
+                    BrowserView.WebKitHost, self
+                ).draggingSession_sourceOperationMaskForDraggingContext_(session, ctx)
+            except Exception:
+                return AppKit.NSDragOperationCopy
 
     def __init__(self, window):
         BrowserView.instances[window.uid] = self
