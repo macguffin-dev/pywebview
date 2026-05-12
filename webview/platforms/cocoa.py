@@ -581,7 +581,7 @@ class BrowserView:
         # the WKWebView default. See ``python/tindex/dnd.py`` for
         # the full architecture.
 
-        def _tindex_dnd_callback(self, name):
+        def _pointer_dnd_callback(self, name):
             try:
                 from tindex import dnd as _tdnd
             except ImportError:
@@ -589,7 +589,7 @@ class BrowserView:
             return getattr(_tdnd, name, None)
 
         def draggingEntered_(self, sender):
-            cb = self._tindex_dnd_callback('on_dragging_entered')
+            cb = self._pointer_dnd_callback('on_dragging_entered')
             if cb is not None:
                 op = cb(self, sender)
                 if op is not None:
@@ -600,7 +600,7 @@ class BrowserView:
                 return AppKit.NSDragOperationNone
 
         def draggingUpdated_(self, sender):
-            cb = self._tindex_dnd_callback('on_dragging_updated')
+            cb = self._pointer_dnd_callback('on_dragging_updated')
             if cb is not None:
                 op = cb(self, sender)
                 if op is not None:
@@ -611,7 +611,7 @@ class BrowserView:
                 return AppKit.NSDragOperationNone
 
         def draggingExited_(self, sender):
-            cb = self._tindex_dnd_callback('on_dragging_exited')
+            cb = self._pointer_dnd_callback('on_dragging_exited')
             if cb is not None:
                 cb(self, sender)
             try:
@@ -628,7 +628,7 @@ class BrowserView:
             # Hardcoding Copy here forces source-mask=Copy, which doesn't
             # intersect with a Move-only destination mask — AppKit then
             # refuses the drop and the JS ``drop`` event never fires.
-            cb = self._tindex_dnd_callback('on_drag_source_op_mask')
+            cb = self._pointer_dnd_callback('on_drag_source_op_mask')
             if cb is not None:
                 op = cb(self, session, ctx)
                 if op is not None:
