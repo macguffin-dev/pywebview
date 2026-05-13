@@ -416,12 +416,12 @@ class BrowserView:
 
     class WebKitHost(WebKit.WKWebView):
         def performDragOperation_(self, sender):
-            # TIndex hook: handle our pasteboard types before the URL
+            # Pointer hook: handle our pasteboard types before the URL
             # drop path. ``on_perform_drag`` returns True when the
             # drop was consumed; otherwise we fall through to the
             # original logic so file URL drops keep working.
             try:
-                from tindex import dnd as _tdnd
+                from pointer import dnd as _tdnd
 
                 cb = getattr(_tdnd, 'on_perform_drag', None)
                 if cb is not None and cb(self, sender):
@@ -484,12 +484,12 @@ class BrowserView:
             super(BrowserView.WebKitHost, self).mouseDown_(event)
 
         def mouseDragged_(self, event):
-            # TIndex hook: if a drag payload is armed, start a native
+            # Pointer hook: if a drag payload is armed, start a native
             # NSDraggingSession instead of letting WebKit's default
             # text-selection drag take over. The hook returns True
             # when it claimed the event.
             try:
-                from tindex import dnd as _tdnd
+                from pointer import dnd as _tdnd
 
                 cb = getattr(_tdnd, 'on_mouse_dragged', None)
                 if cb is not None and cb(self, event):
@@ -569,21 +569,21 @@ class BrowserView:
 
             super(BrowserView.WebKitHost, self).keyDown_(event)
 
-        # ----- TIndex native drag-and-drop hooks ------------------
+        # ----- Pointer native drag-and-drop hooks -----------------
         # Defined inline (vs runtime attribute assignment) because
         # PyObjC only registers Obj-C selectors for methods present
         # at class-definition time. Runtime ``cls.draggingEntered_ =
         # func`` assignment doesn't make AppKit dispatch to them.
-        # The bodies delegate to ``tindex.dnd._tindex_*`` callbacks
-        # so the heavy lifting stays in TIndex's tree; pywebview
-        # only forwards. When ``tindex.dnd`` isn't importable
+        # The bodies delegate to ``pointer.dnd.on_*`` callbacks
+        # so the heavy lifting stays in Pointer's tree; pywebview
+        # only forwards. When ``pointer.dnd`` isn't importable
         # (running pywebview standalone), the hooks fall through to
-        # the WKWebView default. See ``python/tindex/dnd.py`` for
+        # the WKWebView default. See ``python/pointer/dnd.py`` for
         # the full architecture.
 
         def _pointer_dnd_callback(self, name):
             try:
-                from tindex import dnd as _tdnd
+                from pointer import dnd as _tdnd
             except ImportError:
                 return None
             return getattr(_tdnd, name, None)
@@ -620,7 +620,7 @@ class BrowserView:
                 pass
 
         def draggingSession_sourceOperationMaskForDraggingContext_(self, session, ctx):
-            # Delegate to TIndex first; if it claims this drag (cindex
+            # Delegate to Pointer first; if it claims this drag (cindex
             # pasteboard armed) the returned op overrides WKWebView's
             # default. Otherwise fall through to ``super`` so HTML5
             # drags (e.g., pane-title-bar reorder with
