@@ -416,6 +416,19 @@ class BrowserView:
 
     class WebKitHost(WebKit.WKWebView):
         def performDragOperation_(self, sender):
+            # Pointer hook: handle our pasteboard types before the URL
+            # drop path. ``on_perform_drag`` returns True when the
+            # drop was consumed; otherwise we fall through to the
+            # original logic so file URL drops keep working.
+            try:
+                from pointer import dnd as _tdnd
+
+                cb = getattr(_tdnd, 'on_perform_drag', None)
+                if cb is not None and cb(self, sender):
+                    return True
+            except ImportError:
+                pass
+
             if sender.draggingSource() is None and _dnd_state['num_listeners'] > 0:
                 pboard = sender.draggingPasteboard()
                 classes = [AppKit.NSURL]
@@ -471,6 +484,19 @@ class BrowserView:
             super(BrowserView.WebKitHost, self).mouseDown_(event)
 
         def mouseDragged_(self, event):
+            # Pointer hook: if a drag payload is armed, start a native
+            # NSDraggingSession instead of letting WebKit's default
+            # text-selection drag take over. The hook returns True
+            # when it claimed the event.
+            try:
+                from pointer import dnd as _tdnd
+
+                cb = getattr(_tdnd, 'on_mouse_dragged', None)
+                if cb is not None and cb(self, event):
+                    return
+            except ImportError:
+                pass
+
             i = BrowserView.get_instance('webview', self)
             window = self.window()
 
@@ -542,6 +568,77 @@ class BrowserView:
                         return
 
             super(BrowserView.WebKitHost, self).keyDown_(event)
+
+        # ----- Pointer native drag-and-drop hooks -----------------
+        # Defined inline (vs runtime attribute assignment) because
+        # PyObjC only registers Obj-C selectors for methods present
+        # at class-definition time. Runtime ``cls.draggingEntered_ =
+        # func`` assignment doesn't make AppKit dispatch to them.
+        # The bodies delegate to ``pointer.dnd.on_*`` callbacks
+        # so the heavy lifting stays in Pointer's tree; pywebview
+        # only forwards. When ``pointer.dnd`` isn't importable
+        # (running pywebview standalone), the hooks fall through to
+        # the WKWebView default. See ``python/pointer/dnd.py`` for
+        # the full architecture.
+
+        def _pointer_dnd_callback(self, name):
+            try:
+                from pointer import dnd as _tdnd
+            except ImportError:
+                return None
+            return getattr(_tdnd, name, None)
+
+        def draggingEntered_(self, sender):
+            cb = self._pointer_dnd_callback('on_dragging_entered')
+            if cb is not None:
+                op = cb(self, sender)
+                if op is not None:
+                    return op
+            try:
+                return super(BrowserView.WebKitHost, self).draggingEntered_(sender)
+            except Exception:
+                return AppKit.NSDragOperationNone
+
+        def draggingUpdated_(self, sender):
+            cb = self._pointer_dnd_callback('on_dragging_updated')
+            if cb is not None:
+                op = cb(self, sender)
+                if op is not None:
+                    return op
+            try:
+                return super(BrowserView.WebKitHost, self).draggingUpdated_(sender)
+            except Exception:
+                return AppKit.NSDragOperationNone
+
+        def draggingExited_(self, sender):
+            cb = self._pointer_dnd_callback('on_dragging_exited')
+            if cb is not None:
+                cb(self, sender)
+            try:
+                super(BrowserView.WebKitHost, self).draggingExited_(sender)
+            except Exception:
+                pass
+
+        def draggingSession_sourceOperationMaskForDraggingContext_(self, session, ctx):
+            # Delegate to Pointer first; if it claims this drag (cindex
+            # pasteboard armed) the returned op overrides WKWebView's
+            # default. Otherwise fall through to ``super`` so HTML5
+            # drags (e.g., pane-title-bar reorder with
+            # ``effectAllowed='move'``) get WKWebView's correct mapping.
+            # Hardcoding Copy here forces source-mask=Copy, which doesn't
+            # intersect with a Move-only destination mask — AppKit then
+            # refuses the drop and the JS ``drop`` event never fires.
+            cb = self._pointer_dnd_callback('on_drag_source_op_mask')
+            if cb is not None:
+                op = cb(self, session, ctx)
+                if op is not None:
+                    return op
+            try:
+                return super(
+                    BrowserView.WebKitHost, self
+                ).draggingSession_sourceOperationMaskForDraggingContext_(session, ctx)
+            except Exception:
+                return AppKit.NSDragOperationCopy
 
     def __init__(self, window):
         BrowserView.instances[window.uid] = self
