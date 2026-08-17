@@ -74,9 +74,21 @@ class BrowserView:
             # (tests/conftest.py) while this module stays cached, so an
             # import-time binding would still point at the previous
             # EventContainer and never see a handler.
+            if webview._quit_deferred:
+                # A review is already open; coalesce rather than stacking a
+                # second pending terminate.
+                return AppKit.NSTerminateLater
+
             if webview.events.before_quit.set():
                 logger.debug('before_quit handler cancelled the terminate')
+                # An outright refusal outranks a deferral: clear it, or AppKit
+                # is left waiting for a reply nobody will send.
+                webview._quit_deferred = False
                 return AppKit.NSTerminateCancel
+
+            if webview._quit_deferred:
+                logger.debug('before_quit handler deferred the terminate')
+                return AppKit.NSTerminateLater
 
             should_close = True
             for i in BrowserView.instances.values():
@@ -1676,6 +1688,25 @@ def evaluate_js(script, uid, parse_json=True):
     i = BrowserView.instances.get(uid)
     if i:
         return i.evaluate_js(script, parse_json)
+
+
+def resume_quit(allow):
+    """Deliver the answer promised by ``webview.defer_quit()``.
+
+    ``[NSApp replyToApplicationShouldTerminate:]`` must run on the main thread
+    and must not be sent unless a terminate is actually parked — replying
+    unasked is an AppKit error, so an unpaired call warns and returns.
+    """
+    if not webview._quit_deferred:
+        logger.warning('resume_quit: no deferred quit pending; ignoring')
+        return
+
+    webview._quit_deferred = False
+
+    def _reply():
+        BrowserView.app.replyToApplicationShouldTerminate_(bool(allow))
+
+    AppHelper.callAfter(_reply)
 
 
 def get_position(uid):
