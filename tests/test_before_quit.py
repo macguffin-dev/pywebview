@@ -246,3 +246,63 @@ class TestDeferredQuit:
         cocoa.resume_quit(True)  # nothing deferred
 
         assert replies == [], 'replying with no deferral pending is an AppKit error'
+
+
+class TestQuitDeferredAccessor:
+    """Consumers need the pending state without reaching for a private."""
+
+    def test_reports_pending_between_defer_and_resume(self, env, monkeypatch):
+        import webview
+        from webview.platforms import cocoa
+
+        delegate, _calls, on_before_quit = env
+        assert webview.quit_deferred() is False
+
+        on_before_quit(webview.defer_quit)
+        delegate.applicationShouldTerminate_(None)
+        assert webview.quit_deferred() is True
+
+        monkeypatch.setattr(
+            cocoa.BrowserView,
+            'app',
+            type(
+                'StubApp', (), {'replyToApplicationShouldTerminate_': staticmethod(lambda _v: None)}
+            )(),
+        )
+        monkeypatch.setattr(cocoa.AppHelper, 'callAfter', lambda fn, *a: fn(*a))
+        cocoa.resume_quit(True)
+        assert webview.quit_deferred() is False
+
+
+class TestResumeQuitDispatch:
+    """The public entry point, which is what a framework layer calls."""
+
+    def test_dispatches_to_the_active_backend(self, monkeypatch):
+        import webview
+
+        seen = []
+        monkeypatch.setattr(
+            webview,
+            'guilib',
+            type('StubGui', (), {'resume_quit': staticmethod(seen.append)})(),
+        )
+        webview.resume_quit(True)
+        assert seen == [True]
+
+    def test_coerces_to_bool(self, monkeypatch):
+        import webview
+
+        seen = []
+        monkeypatch.setattr(
+            webview,
+            'guilib',
+            type('StubGui', (), {'resume_quit': staticmethod(seen.append)})(),
+        )
+        webview.resume_quit(1)
+        assert seen == [True], 'the ObjC BOOL must not receive a Python int'
+
+    def test_backend_without_support_warns_instead_of_raising(self, monkeypatch):
+        import webview
+
+        monkeypatch.setattr(webview, 'guilib', type('StubGui', (), {})())
+        webview.resume_quit(True)  # must not raise
