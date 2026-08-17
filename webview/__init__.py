@@ -45,6 +45,7 @@ __all__ = (
     'events',
     'defer_quit',
     'resume_quit',
+    'quit_deferred',
     # From event
     'Event',
     # from util    '
@@ -184,6 +185,14 @@ def defer_quit() -> None:
     """
     global _quit_deferred
     _quit_deferred = True
+
+
+def quit_deferred() -> bool:
+    """Whether a quit is deferred, i.e. AppKit is holding termination open
+    waiting for :func:`resume_quit`. Lets a framework layer sitting between the
+    application and this module tell "the app refused" from "the app is asking
+    the user" without reaching into private state."""
+    return _quit_deferred
 
 
 def resume_quit(allow: bool) -> None:
