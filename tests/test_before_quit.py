@@ -132,3 +132,117 @@ def test_a_window_refusing_still_cancels(env, monkeypatch):
     reply = delegate.applicationShouldTerminate_(None)
 
     assert reply == AppKit.NSTerminateCancel
+
+
+class TestDeferredQuit:
+    """``NSTerminateLater`` — the third reply pywebview could not express.
+
+    AppKit's ``applicationShouldTerminate:`` returns one of three values
+    (Cancel=0, Now=1, Later=2). pywebview answered ``Foundation.YES``/``NO``,
+    which are 1 and 0, so the reply was correct but never complete: an app
+    could not say "ask the user, I will answer shortly", which is what the
+    standard Save / Don't Save / Cancel review on quit requires.
+
+    ``defer_quit()`` answers Later; ``resume_quit(allow)`` delivers the answer
+    via ``replyToApplicationShouldTerminate:``.
+    """
+
+    def test_defer_returns_later_and_skips_window_polling(self, env):
+        import AppKit
+
+        import webview
+
+        delegate, calls, on_before_quit = env
+        on_before_quit(webview.defer_quit)
+
+        reply = delegate.applicationShouldTerminate_(None)
+
+        assert reply == AppKit.NSTerminateLater
+        assert 'poll' not in calls, 'a deferred quit has not been decided yet'
+
+    def test_cancel_outranks_defer(self, env):
+        import AppKit
+
+        import webview
+
+        delegate, calls, on_before_quit = env
+
+        def refuse_and_defer():
+            webview.defer_quit()
+            return False
+
+        on_before_quit(refuse_and_defer)
+        reply = delegate.applicationShouldTerminate_(None)
+
+        assert reply == AppKit.NSTerminateCancel
+        assert webview._quit_deferred is False, (
+            'an outright refusal must clear the deferral, or the app is left '
+            'waiting for a reply that will never come'
+        )
+
+    def test_second_request_while_pending_coalesces(self, env):
+        import AppKit
+
+        import webview
+
+        delegate, calls, on_before_quit = env
+        on_before_quit(webview.defer_quit)
+
+        assert delegate.applicationShouldTerminate_(None) == AppKit.NSTerminateLater
+        calls.clear()
+        # A second Cmd+Q while the review is still open must not stack another
+        # pending terminate, nor fall through to polling.
+        assert delegate.applicationShouldTerminate_(None) == AppKit.NSTerminateLater
+        assert calls == []
+
+    def test_no_defer_leaves_the_normal_path(self, env):
+        import AppKit
+
+        import webview
+
+        delegate, calls, _ = env
+
+        assert delegate.applicationShouldTerminate_(None) == AppKit.NSTerminateNow
+        assert calls == ['poll']
+        assert webview._quit_deferred is False
+
+    def test_resume_replies_and_clears_pending(self, env, monkeypatch):
+        import webview
+        from webview.platforms import cocoa
+
+        delegate, _calls, on_before_quit = env
+        on_before_quit(webview.defer_quit)
+        delegate.applicationShouldTerminate_(None)
+
+        replies = []
+        monkeypatch.setattr(
+            cocoa.BrowserView,
+            'app',
+            type(
+                'StubApp', (), {'replyToApplicationShouldTerminate_': staticmethod(replies.append)}
+            )(),
+        )
+        # Run the main-thread marshal inline.
+        monkeypatch.setattr(cocoa.AppHelper, 'callAfter', lambda fn, *a: fn(*a))
+
+        cocoa.resume_quit(True)
+
+        assert replies == [True]
+        assert webview._quit_deferred is False, 'pending state must clear'
+
+    def test_resume_without_pending_is_a_noop(self, env, monkeypatch):
+        from webview.platforms import cocoa
+
+        replies = []
+        monkeypatch.setattr(
+            cocoa.BrowserView,
+            'app',
+            type(
+                'StubApp', (), {'replyToApplicationShouldTerminate_': staticmethod(replies.append)}
+            )(),
+        )
+        monkeypatch.setattr(cocoa.AppHelper, 'callAfter', lambda fn, *a: fn(*a))
+
+        cocoa.resume_quit(True)  # nothing deferred
+
+        assert replies == [], 'replying with no deferral pending is an AppKit error'
