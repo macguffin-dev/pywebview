@@ -25,7 +25,7 @@ from proxy_tools import module_property
 
 import webview.http as http
 from webview.errors import JavascriptException, WebViewException
-from webview.event import Event
+from webview.event import Event, EventContainer
 from webview.guilib import GUIType, initialize
 from webview.localization import original_localization
 from webview.menu import Menu
@@ -42,6 +42,7 @@ __all__ = (
     'renderer',
     'screens',
     'settings',
+    'events',
     # From event
     'Event',
     # from util    '
@@ -144,6 +145,24 @@ _state = ImmutableDict(
         'menu': None,
     }
 )
+
+
+# Application-level events, as distinct from the per-window ones on
+# ``Window.events``.
+#
+# ``before_quit`` fires when the application is asked to terminate, before any
+# window is consulted. A handler returning ``False`` cancels the quit and no
+# window is asked at all. Locked (synchronous) because the reply is needed
+# before the platform can be answered — an unlocked Event runs its handlers on
+# a thread and its return values are lost.
+#
+# macOS only. It maps to ``applicationShouldTerminate:``, an
+# NSApplicationDelegate method with no counterpart on the other backends:
+# winforms has per-form ``FormClosing``, qt per-window ``closeEvent``, gtk
+# per-window ``confirm_close``. On those platforms quitting *is* the windows
+# closing, so there is no application-level moment to hook.
+events = EventContainer()
+events.before_quit = Event(None, True)
 
 
 @module_property

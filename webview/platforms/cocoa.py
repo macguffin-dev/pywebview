@@ -14,6 +14,7 @@ import WebKit
 from objc import nil, super
 from PyObjCTools import AppHelper
 
+import webview
 from webview import FileDialog, _state, windows
 from webview import settings as webview_settings
 from webview.dom import _dnd_state
@@ -64,6 +65,19 @@ class BrowserView:
 
     class AppDelegate(AppKit.NSObject):
         def applicationShouldTerminate_(self, app):
+            # The application-level question comes first. Asking the windows
+            # before the app has had its say means a handler that keys off an
+            # "app is quitting" flag sees it unset and takes its non-quit
+            # branch — cancelling the very terminate it was asked about.
+            # Reached through the module, not a `from webview import events`
+            # binding: the test suite reloads `webview` before every test
+            # (tests/conftest.py) while this module stays cached, so an
+            # import-time binding would still point at the previous
+            # EventContainer and never see a handler.
+            if webview.events.before_quit.set():
+                logger.debug('before_quit handler cancelled the terminate')
+                return AppKit.NSTerminateCancel
+
             should_close = True
             for i in BrowserView.instances.values():
                 should_close = should_close and BrowserView.should_close(i.pywebview_window)
