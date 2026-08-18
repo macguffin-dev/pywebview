@@ -14,6 +14,7 @@ import WebKit
 from objc import nil, super
 from PyObjCTools import AppHelper
 
+import webview
 from webview import FileDialog, _state, windows
 from webview import settings as webview_settings
 from webview.dom import _dnd_state
@@ -64,6 +65,31 @@ class BrowserView:
 
     class AppDelegate(AppKit.NSObject):
         def applicationShouldTerminate_(self, app):
+            # The application-level question comes first. Asking the windows
+            # before the app has had its say means a handler that keys off an
+            # "app is quitting" flag sees it unset and takes its non-quit
+            # branch — cancelling the very terminate it was asked about.
+            # Reached through the module, not a `from webview import events`
+            # binding: the test suite reloads `webview` before every test
+            # (tests/conftest.py) while this module stays cached, so an
+            # import-time binding would still point at the previous
+            # EventContainer and never see a handler.
+            if webview._quit_deferred:
+                # A review is already open; coalesce rather than stacking a
+                # second pending terminate.
+                return AppKit.NSTerminateLater
+
+            if webview.events.before_quit.set():
+                logger.debug('before_quit handler cancelled the terminate')
+                # An outright refusal outranks a deferral: clear it, or AppKit
+                # is left waiting for a reply nobody will send.
+                webview._quit_deferred = False
+                return AppKit.NSTerminateCancel
+
+            if webview._quit_deferred:
+                logger.debug('before_quit handler deferred the terminate')
+                return AppKit.NSTerminateLater
+
             should_close = True
             for i in BrowserView.instances.values():
                 should_close = should_close and BrowserView.should_close(i.pywebview_window)
@@ -1565,6 +1591,25 @@ def evaluate_js(script, uid, parse_json=True):
     i = BrowserView.instances.get(uid)
     if i:
         return i.evaluate_js(script, parse_json)
+
+
+def resume_quit(allow):
+    """Deliver the answer promised by ``webview.defer_quit()``.
+
+    ``[NSApp replyToApplicationShouldTerminate:]`` must run on the main thread
+    and must not be sent unless a terminate is actually parked — replying
+    unasked is an AppKit error, so an unpaired call warns and returns.
+    """
+    if not webview._quit_deferred:
+        logger.warning('resume_quit: no deferred quit pending; ignoring')
+        return
+
+    webview._quit_deferred = False
+
+    def _reply():
+        BrowserView.app.replyToApplicationShouldTerminate_(bool(allow))
+
+    AppHelper.callAfter(_reply)
 
 
 def get_position(uid):

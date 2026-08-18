@@ -25,7 +25,7 @@ from proxy_tools import module_property
 
 import webview.http as http
 from webview.errors import JavascriptException, WebViewException
-from webview.event import Event
+from webview.event import Event, EventContainer
 from webview.guilib import GUIType, initialize
 from webview.localization import original_localization
 from webview.menu import Menu
@@ -42,6 +42,10 @@ __all__ = (
     'renderer',
     'screens',
     'settings',
+    'events',
+    'defer_quit',
+    'resume_quit',
+    'quit_deferred',
     # From event
     'Event',
     # from util    '
@@ -144,6 +148,64 @@ _state = ImmutableDict(
         'menu': None,
     }
 )
+
+
+# Application-level events, as distinct from the per-window ones on
+# ``Window.events``.
+#
+# ``before_quit`` fires when the application is asked to terminate, before any
+# window is consulted. A handler returning ``False`` cancels the quit and no
+# window is asked at all. Locked (synchronous) because the reply is needed
+# before the platform can be answered — an unlocked Event runs its handlers on
+# a thread and its return values are lost.
+#
+# macOS only. It maps to ``applicationShouldTerminate:``, an
+# NSApplicationDelegate method with no counterpart on the other backends:
+# winforms has per-form ``FormClosing``, qt per-window ``closeEvent``, gtk
+# per-window ``confirm_close``. On those platforms quitting *is* the windows
+# closing, so there is no application-level moment to hook.
+events = EventContainer()
+events.before_quit = Event(None, True)
+
+# True between defer_quit() and resume_quit(): the application has answered
+# NSTerminateLater and AppKit is parked waiting for the reply.
+_quit_deferred = False
+
+
+def defer_quit() -> None:
+    """From inside a ``before_quit`` handler: answer "I will decide shortly".
+
+    Maps to returning ``NSTerminateLater`` from ``applicationShouldTerminate:``.
+    Use it when the answer needs the user — the standard Save / Don't Save /
+    Cancel review — since a handler cannot block waiting for a dialog without
+    stalling the main thread the dialog needs.
+
+    The application MUST later call :func:`resume_quit`. Until it does, AppKit
+    holds termination open indefinitely; it applies no timeout of its own.
+    """
+    global _quit_deferred
+    _quit_deferred = True
+
+
+def quit_deferred() -> bool:
+    """Whether a quit is deferred, i.e. AppKit is holding termination open
+    waiting for :func:`resume_quit`. Lets a framework layer sitting between the
+    application and this module tell "the app refused" from "the app is asking
+    the user" without reaching into private state."""
+    return _quit_deferred
+
+
+def resume_quit(allow: bool) -> None:
+    """Deliver the answer promised by :func:`defer_quit`.
+
+    Maps to ``[NSApp replyToApplicationShouldTerminate:allow]``. ``True``
+    resumes the termination, ``False`` abandons it. A no-op (with a warning) if
+    no quit is pending, since replying unasked is an AppKit error.
+    """
+    if guilib and hasattr(guilib, 'resume_quit'):
+        guilib.resume_quit(bool(allow))
+    else:
+        logger.warning('resume_quit: no GUI backend supports a deferred quit')
 
 
 @module_property
