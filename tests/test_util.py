@@ -7,6 +7,7 @@ from webview.util import (
     _TOKEN,
     create_cookie,
     is_js_bridge_token_valid,
+    is_same_origin,
     js_bridge_call,
     parse_file_type,
 )
@@ -234,3 +235,39 @@ class TestBridgeTokenValidation:
 
         assert is_js_bridge_token_valid(window, _TOKEN)
         assert not is_js_bridge_token_valid(window, 'not-the-token')
+
+
+class TestIsSameOrigin:
+    """Origins per the URL Standard: scheme, host and port, with default ports filled in"""
+
+    def test_path_and_query_do_not_matter(self):
+        assert is_same_origin('http://127.0.0.1:8000/', 'http://127.0.0.1:8000/a?b=1#c')
+
+    def test_a_different_port_is_a_different_origin(self):
+        assert not is_same_origin('http://127.0.0.1:8000/', 'http://127.0.0.1:8001/')
+
+    def test_a_different_host_is_a_different_origin(self):
+        assert not is_same_origin('http://127.0.0.1:8000/', 'http://localhost:8000/')
+
+    def test_a_different_scheme_is_a_different_origin(self):
+        assert not is_same_origin('http://example.com/', 'https://example.com/')
+
+    def test_default_ports_are_filled_in(self):
+        assert is_same_origin('http://example.com/', 'http://example.com:80/x')
+        assert is_same_origin('https://example.com:443', 'https://example.com/')
+
+    def test_scheme_and_host_ignore_case(self):
+        assert is_same_origin('HTTP://Example.COM/', 'http://example.com/')
+
+    def test_a_missing_url_matches_nothing(self):
+        assert not is_same_origin(None, 'http://127.0.0.1:8000/')
+        assert not is_same_origin('http://127.0.0.1:8000/', None)
+        assert not is_same_origin('', '')
+
+    def test_opaque_origins_match_nothing(self):
+        assert not is_same_origin('file:///C:/app/index.html', 'file:///C:/app/index.html')
+        assert not is_same_origin('about:blank', 'about:blank')
+        assert not is_same_origin('data:text/html,hi', 'data:text/html,hi')
+
+    def test_an_invalid_port_matches_nothing(self):
+        assert not is_same_origin('http://example.com:99999/', 'http://example.com:99999/')

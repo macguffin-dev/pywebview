@@ -26,6 +26,9 @@ from webview2.microsoft.web.webview2.core import (
     CoreWebView2NavigationCompletedEventArgs,
     CoreWebView2NavigationStartingEventArgs,
     CoreWebView2NewWindowRequestedEventArgs,
+    CoreWebView2PermissionKind,
+    CoreWebView2PermissionRequestedEventArgs,
+    CoreWebView2PermissionState,
     CoreWebView2ServerCertificateErrorAction,
     CoreWebView2ServerCertificateErrorDetectedEventArgs,
     CoreWebView2SourceChangedEventArgs,
@@ -695,6 +698,7 @@ class WinUI3EdgeChrome(WebView2Core):
             sender.core_webview2.add_server_certificate_error_detected(self.on_certificate_error)
 
         sender.core_webview2.add_download_starting(self.on_download_starting)
+        sender.core_webview2.add_permission_requested(self.on_permission_requested)
 
         self._apply_settings(sender.core_webview2.settings)
 
@@ -719,6 +723,14 @@ class WinUI3EdgeChrome(WebView2Core):
 
         if _state['debug'] and webview_settings['OPEN_DEVTOOLS_IN_DEBUG']:
             sender.core_webview2.open_dev_tools_window()
+
+    def on_permission_requested(
+        self, sender: CoreWebView2, args: CoreWebView2PermissionRequestedEventArgs
+    ):
+        if args.permission_kind == CoreWebView2PermissionKind.CLIPBOARD_READ and (
+            self._should_allow_clipboard_read(args.uri)
+        ):
+            args.state = CoreWebView2PermissionState.ALLOW
 
     def on_download_starting(
         self, sender: CoreWebView2, args: CoreWebView2DownloadStartingEventArgs

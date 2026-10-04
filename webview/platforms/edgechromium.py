@@ -31,6 +31,8 @@ clr.AddReference(interop_dll_path('Microsoft.Web.WebView2.WinForms.dll'))
 
 from Microsoft.Web.WebView2.Core import (  # noqa: E402
     CoreWebView2Cookie,
+    CoreWebView2PermissionKind,
+    CoreWebView2PermissionState,
     CoreWebView2ServerCertificateErrorAction,
     CoreWebView2WebResourceContext,
 )
@@ -242,6 +244,7 @@ class WinFormsEdgeChrome(WebView2Core):
             sender.CoreWebView2.ServerCertificateErrorDetected += self.on_certificate_error
 
         sender.CoreWebView2.DownloadStarting += self.on_download_starting
+        sender.CoreWebView2.PermissionRequested += self.on_permission_requested
 
         self._apply_settings(sender.CoreWebView2.Settings)
 
@@ -277,6 +280,12 @@ class WinFormsEdgeChrome(WebView2Core):
             args.ResultFilePath = dialog.FileName
         else:
             args.Cancel = True
+
+    def on_permission_requested(self, sender, args):
+        if args.PermissionKind == CoreWebView2PermissionKind.ClipboardRead and (
+            self._should_allow_clipboard_read(str(args.Uri))
+        ):
+            args.State = CoreWebView2PermissionState.Allow
 
     def on_navigation_start(self, sender, args):
         if self.pywebview_window.transparent:

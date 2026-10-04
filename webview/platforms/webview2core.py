@@ -13,7 +13,7 @@ from webview import settings as webview_settings
 from webview.dom import _dnd_state
 from webview.models import Request, Response
 from webview.platforms.win32 import start_drag
-from webview.util import DEFAULT_HTML, is_js_bridge_token_valid, js_bridge_call
+from webview.util import DEFAULT_HTML, is_js_bridge_token_valid, is_same_origin, js_bridge_call
 
 logger = logging.getLogger('pywebview')
 
@@ -145,6 +145,14 @@ class WebView2Core(ABC):
     def _fire_response_event(self, uri: str, status_code: int, headers: dict) -> None:
         response = Response(uri, status_code, headers)
         self.pywebview_window.events.response_received.set(response)
+
+    def _should_allow_clipboard_read(self, uri: str) -> bool:
+        """
+        Whether the page at `uri` may read the clipboard without WebView2's permission
+        prompt: the window's own content may, as a native application reads its own
+        clipboard. Anywhere else the window navigates to still gets the prompt.
+        """
+        return is_same_origin(uri, self.pywebview_window.real_url)
 
     def _should_allow_download(self) -> bool:
         return bool(webview_settings['ALLOW_DOWNLOADS'])

@@ -83,6 +83,32 @@ def is_local_url(url: str | Callable[..., Any] | None) -> TypeGuard[str]:
     )
 
 
+_DEFAULT_PORTS = {'http': 80, 'https': 443}
+
+
+def _origin(url: str | None) -> tuple[str, str, int] | None:
+    if not url:
+        return None
+    parts = urllib.parse.urlsplit(url)
+    scheme = parts.scheme.lower()
+    if scheme not in _DEFAULT_PORTS or not parts.hostname:
+        return None
+    try:
+        return scheme, parts.hostname, parts.port or _DEFAULT_PORTS[scheme]
+    except ValueError:  # port out of range
+        return None
+
+
+def is_same_origin(url: str | None, other: str | None) -> bool:
+    """
+    Whether two URLs share an origin: scheme, host and port, default ports filled in.
+    Only http(s) URLs have one to share; file:, about: and data: URLs have opaque
+    origins, which match nothing.
+    """
+    origin = _origin(url)
+    return origin is not None and origin == _origin(other)
+
+
 def needs_server(urls: list[str]) -> bool:
     return bool([url for url in urls if (is_app(url) or is_local_url(url))])
 
