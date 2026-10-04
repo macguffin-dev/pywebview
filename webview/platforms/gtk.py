@@ -491,6 +491,10 @@ class BrowserView:
 
         if destination:
             destination_uri = glib.filename_to_uri(destination[0])
+            # The save dialog has asked before replacing an existing file, so
+            # let the download replace it: WebKitGTK fails a download whose
+            # destination exists unless allow-overwrite is set (FALSE by default).
+            download.set_allow_overwrite(True)
             download.set_destination(destination_uri)
         else:
             download.cancel()
@@ -635,6 +639,10 @@ class BrowserView:
 
         if dialog_type == FileDialog.SAVE:
             dialog.set_current_name(save_filename)
+            # Ask before replacing an existing file, as the other backends'
+            # save dialogs do. GTK 3 does so only when told to:
+            # do-overwrite-confirmation is FALSE by default.
+            dialog.set_do_overwrite_confirmation(True)
 
         response = dialog.run()
 
