@@ -488,8 +488,6 @@ def create_window(
         screen=screen,
     )
 
-    windows.append(window)
-
     # This immediately creates the window only if `start` has already been called
     if threading.current_thread().name != 'MainThread' and guilib:
         server_instance: http.BottleServer | None
@@ -501,9 +499,22 @@ def create_window(
         else:
             server_instance = None
 
+        # Listed only once initialised. A window whose initialisation was
+        # cancelled or raised is not a window, and only a native close takes
+        # an entry out of `windows`: listed first, it stayed there, and a
+        # `while webview.windows` loop never ended.
         if not window._initialize(gui=guilib, server=server_instance):
             return None
-        guilib.create_window(window)
+        windows.append(window)
+        try:
+            guilib.create_window(window)
+        except Exception:
+            if window in windows:
+                windows.remove(window)
+            raise
+    else:
+        # `start` initialises and creates every window listed by then.
+        windows.append(window)
 
     return window
 
