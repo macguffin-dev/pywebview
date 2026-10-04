@@ -1068,6 +1068,23 @@ class BrowserView:
 
     def evaluate_js(self, script, parse_json):
         def eval():
+            # The window may have closed since evaluate_js() found it: that
+            # lookup ran on the calling thread, and windowWillClose_ -- which
+            # releases the web view -- runs here, on the main thread, as this
+            # does. A released WKWebView cannot be messaged, so check here,
+            # where nothing can close it under us, and answer the waiting
+            # caller: no completion handler will.
+            if self.webview is None:
+                # The script names its caller: a JS-API return value
+                # (_returnValuesCallbacks["<method>"]) or the app's own.
+                logger.info(
+                    'evaluate_js: window %s closed before the script ran; skipped: %.200s',
+                    self.uid,
+                    ' '.join(script.split()),
+                )
+                JSResult.result = None
+                JSResult.result_semaphore.release()
+                return
             self.webview.evaluateJavaScript_completionHandler_(script, handler)
 
         def handler(result, error):
