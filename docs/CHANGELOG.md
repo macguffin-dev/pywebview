@@ -4,6 +4,7 @@
 
 ### 🚀 Improvements
 
+- `EdgeChromium` Update WebView2 runtime to 1.0.4258.31.
 - `EdgeChromium` Update WebView2 runtime to 1.0.4191.47.
 - `EdgeChromium` A window's own pages read the clipboard without WebView2's permission prompt. Pages from other origins still get it.
 - `All` Bump minimum Python version to 3.10. Type annotations across the codebase now use PEP 585 / PEP 604 built-in generics and union syntax.
