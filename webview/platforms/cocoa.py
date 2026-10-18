@@ -86,6 +86,9 @@ class BrowserView:
 
     cascade_loc = Foundation.NSMakePoint(100.0, 0.0)
     _shared_app_delegate = None
+    # Private mode's clear of the shared data store: None when none is under
+    # way, else the initial loads of the windows waiting for it to finish.
+    _private_clear_waiting = None
 
     class AppDelegate(AppKit.NSObject):
         def applicationShouldTerminate_(self, app):
@@ -813,21 +816,13 @@ class BrowserView:
             ns_image = AppKit.NSImage.alloc().initByReferencingFile_(_state['icon'])
             BrowserView.app.setApplicationIconImage_(ns_image)
 
-        if _state['private_mode']:
+        config.setWebsiteDataStore_(self.datastore)
+        if _state['private_mode'] and list(BrowserView.instances) == [self.uid]:
             # nonPersisentDataStore preserves cookies for some unknown reason. For this reason we use default datastore
-            # and clear all the cookies beforehand
-
-            def dummy_completion_handler():
-                pass
-
-            data_types = WebKit.WKWebsiteDataStore.allWebsiteDataTypes()
-            from_start = WebKit.NSDate.dateWithTimeIntervalSince1970_(0)
-            config.setWebsiteDataStore_(self.datastore)
-            self.datastore.removeDataOfTypes_modifiedSince_completionHandler_(
-                data_types, from_start, dummy_completion_handler
-            )
-        else:
-            config.setWebsiteDataStore_(self.datastore)
+            # and clear all the cookies beforehand -- when no other window is open. Every window shares the
+            # store, so clearing it whenever a window opened cleared the cookies and storage of every window
+            # already open.
+            BrowserView._clear_private_store(self.datastore)
 
         try:
             config.preferences().setValue_forKey_(False, 'backspaceKeyNavigationEnabled')
@@ -906,13 +901,60 @@ class BrowserView:
 
         if window.real_url:
             self.url = window.real_url
-            self.load_url(window.real_url)
+            BrowserView._after_private_clear(lambda: self.load_url(window.real_url))
         elif window.html:
-            self.load_html(window.html, '')
+            BrowserView._after_private_clear(lambda: self.load_html(window.html, ''))
         else:
-            self.load_html(DEFAULT_HTML, '')
+            BrowserView._after_private_clear(lambda: self.load_html(DEFAULT_HTML, ''))
         if window.fullscreen:
             self.toggle_fullscreen()
+
+    #: How long a window's first page waits on private mode's clear of the data store before it
+    #: loads anyway, should WebKit never report the clear done.
+    PRIVATE_CLEAR_TIMEOUT = 5.0
+
+    @staticmethod
+    def _clear_private_store(datastore):
+        """Clear every kind of website data from ``datastore``, holding back the first page of each
+        window made meanwhile (:meth:`_after_private_clear`) until it is done: the clear is
+        asynchronous, and a page that loaded first could have a cookie it was given cleared."""
+        if BrowserView._private_clear_waiting is not None:
+            return
+        waiting = []
+        BrowserView._private_clear_waiting = waiting
+
+        def cleared():
+            # Once per clear: by WebKit's report or the timeout, whichever comes first -- and not
+            # for a later clear, which has a list of its own.
+            if BrowserView._private_clear_waiting is not waiting:
+                return
+            BrowserView._private_clear_waiting = None
+            for load in waiting:
+                load()
+
+        def timed_out():
+            if BrowserView._private_clear_waiting is waiting:
+                logger.warning(
+                    'private mode: the data store was not cleared within %ss; loading anyway',
+                    BrowserView.PRIVATE_CLEAR_TIMEOUT,
+                )
+                cleared()
+
+        data_types = WebKit.WKWebsiteDataStore.allWebsiteDataTypes()
+        from_start = WebKit.NSDate.dateWithTimeIntervalSince1970_(0)
+        datastore.removeDataOfTypes_modifiedSince_completionHandler_(
+            data_types, from_start, cleared
+        )
+        AppHelper.callLater(BrowserView.PRIVATE_CLEAR_TIMEOUT, timed_out)
+
+    @staticmethod
+    def _after_private_clear(load):
+        """Run ``load`` -- a window's first page -- once private mode's clear of the data store is
+        done, or now when none is under way."""
+        if BrowserView._private_clear_waiting is None:
+            load()
+        else:
+            BrowserView._private_clear_waiting.append(load)
 
     def first_show(self):
         if not self.hidden:
