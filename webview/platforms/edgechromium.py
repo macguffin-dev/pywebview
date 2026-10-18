@@ -13,6 +13,7 @@ from webview.util import (
     get_app_root,
     inject_pywebview,
     interop_dll_path,
+    no_other_window,
 )
 
 clr.AddReference('System.Windows.Forms')
@@ -248,7 +249,9 @@ class WinFormsEdgeChrome(WebView2Core):
 
         self._apply_settings(sender.CoreWebView2.Settings)
 
-        if _state['private_mode']:
+        # Only with no other window open: every window shares the InPrivate session, and
+        # deleting its cookies as each window became ready deleted those of every window open.
+        if _state['private_mode'] and no_other_window(self.pywebview_window):
             sender.CoreWebView2.CookieManager.DeleteAllCookies()
 
         kind, content = self._get_initial_load()

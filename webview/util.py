@@ -109,6 +109,15 @@ def is_same_origin(url: str | None, other: str | None) -> bool:
     return origin is not None and origin == _origin(other)
 
 
+def no_other_window(window: object) -> bool:
+    """
+    Whether no window but ``window`` is open: none other is listed in ``webview.windows``. Private
+    mode clears what a window's webview shares with the others only then -- cleared as each window
+    became ready, the cookies of every window already open went with it.
+    """
+    return not any(other is not window for other in webview.windows)
+
+
 def needs_server(urls: list[str]) -> bool:
     return bool([url for url in urls if (is_app(url) or is_local_url(url))])
 

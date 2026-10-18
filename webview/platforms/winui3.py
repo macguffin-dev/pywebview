@@ -136,6 +136,7 @@ from webview.util import (
     get_app_root,
     inject_base_uri,
     inject_pywebview,
+    no_other_window,
     parse_file_type,
 )
 from webview.window import FixPoint
@@ -702,8 +703,10 @@ class WinUI3EdgeChrome(WebView2Core):
 
         self._apply_settings(sender.core_webview2.settings)
 
-        if _state['private_mode']:
-            # cookies persist even if UserDataFolder is in memory. We have to delete cookies manually.
+        if _state['private_mode'] and no_other_window(self.pywebview_window):
+            # cookies persist even if UserDataFolder is in memory. We have to delete cookies manually
+            # -- with no other window open: every window shares them, and deleting them as each
+            # window became ready deleted those of every window already open.
             sender.core_webview2.cookie_manager.delete_all_cookies()
 
         pending_load = self._pending_load

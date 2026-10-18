@@ -271,3 +271,36 @@ class TestIsSameOrigin:
 
     def test_an_invalid_port_matches_nothing(self):
         assert not is_same_origin('http://example.com:99999/', 'http://example.com:99999/')
+
+
+class TestNoOtherWindow:
+    """WebView2's private mode deletes its cookies only when no other window is
+    open: every window shares the InPrivate session, so deleting them as each
+    window became ready deleted the cookies of every window already open."""
+
+    @pytest.fixture
+    def windows(self, monkeypatch):
+        import webview
+
+        listed = []
+        monkeypatch.setattr(webview, 'windows', listed)
+        return listed
+
+    def test_alone(self, windows):
+        from webview.util import no_other_window
+
+        window = object()
+        windows.append(window)
+        assert no_other_window(window)
+
+    def test_not_yet_listed(self, windows):
+        from webview.util import no_other_window
+
+        assert no_other_window(object())
+
+    def test_beside_another(self, windows):
+        from webview.util import no_other_window
+
+        window = object()
+        windows.extend([object(), window])
+        assert not no_other_window(window)
